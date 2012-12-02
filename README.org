@@ -1,0 +1,7 @@
+* THexplorer
+
+A Python program for representing and manipulating Turk's-Head knots, and
+generating diagrams for working them.
+
+You'll need http://opikanoba.org/res/python/SVGdraw/SVGdraw.py to generate
+the SVG output.

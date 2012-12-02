@@ -570,7 +570,7 @@ def usage():
   -s --single:\t\t\tWhen using -l/--layers, only find single-strand knots
   -r --radius=rad:\t\tCircular plot with given inner radius
   -k --knot-only:\t\tJust print out knot (default: output SVG)
-"""
+"""%sys.argv[0]
 
 if __name__=='__main__':
     from getopt import getopt
@@ -609,7 +609,7 @@ if __name__=='__main__':
             s="".join(argv).replace('(','[').replace(')',']')
             l=json.loads(s)
         except ValueError:
-            print "Specify pivots ..."
+            usage()
             exit(1)
         k=Knot(l)
     citer=None
