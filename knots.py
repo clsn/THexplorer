@@ -98,6 +98,85 @@ class Knot:
             self.valid=False
         # Other validations?
 
+    @classmethod
+    def TH(cls,leads,bights):
+        "Return a simple LxB Turks-Head"
+        return cls(zip(range(0,2*bights,2),[0]*bights) +
+                   zip(range((leads%2),2*bights,2),[leads]*bights))
+
+    @classmethod
+    def Layers(cls,layers):
+        """Try to build a flat-bottomed multi-tier TH.
+Knot.Layers(layers):
+
+layers is a list of the form [[n1,h1],[n2,h2],[n3,h3]...]
+where n1 is the number of pivots to be placed at hight h1 and so on.
+Total length of the knot, number of bights or pivots along the (flat)
+bottom is the sum of all the n's.  Each n must divide the total 
+(have gcd(n,total)>1).  Trial-and-error attempt to build single-strand
+by varying phase?
+"""
+        from fractions import gcd
+        total=sum([e[0] for e in layers])
+        if any([gcd(total,e[0])<2 for e in layers]):
+            raise Exception("Layers must not be prime to total.")
+        pivots=[]
+        layertable=[]
+        for layer in layers:
+            [number,height]=layer
+            # if you're filling in 6 out of 18, the row looks like 6
+            # sections of length 3, each with one place filled.  If
+            # it's 12 out of 18, still 6 sections of length 3, with
+            # two places filled.  etc.
+            sections=gcd(total,number)
+            size=total/sections
+            howmany=number/sections
+            thisrow=[]
+            # Odd rows need to be on odd lattice points.
+            shift=height%2
+            for i in range(0,total,size):
+                for j in range(0,howmany):
+                    thisrow.append((2*(i+j)+shift,height))
+            layertable.append(thisrow)
+        # At this point, should have layers but all with phase=0.
+        # Need to make trials now?
+        def shiftover(row, shift):
+            "Return a row that looks like this one only shifted over, modulo the total."
+            return zip([(p[0]+shift)%(2*total) for p in row],
+                       [p[1] for p in row])
+        import itertools
+        def flatten(lol):
+            # flatten list of lists (only one level deep)
+            return list(itertools.chain(*lol))
+        def shifted(ltbl,shifts):
+            """Take a layer table ltbl.  Assemble a list by concatenating 
+            ltbl[0] shifted over by shifts[0] with
+            ltbl[1] shifted over by shifts[1] and
+            ltbl[2] shifted over by shifts[2] and so forth.
+            Return that.
+            """
+            ss=[]
+            for i in range(0,len(ltbl)):
+                ss+=shiftover(ltbl[i],shifts[i])
+            return ss
+        # Try all the possibilities?  Ow.
+        ranges=[xrange(0,i) for i in [len(l) for l in layertable]]
+        # LEN(L) FOR L IN LAYERTABLE IS WRONG!!! ^^^^^^^^^^^
+        itr=itertools.product(*ranges)
+        bottom=zip(range(0,2*total,2),[0]*total)
+        results=set()
+        for sft in itr:
+            k=Knot(bottom+shifted(layertable,sft))
+            strnd=0
+            try:
+                strnd=len(k.strands())
+            except Exception:
+                pass
+            if strnd:
+                results.add(k)
+        return results
+                    
+
     def __repr__(self):
         return "Knot(%s)"%str([(p.x,p.y) for p in self.pivots])
     def __str__(self):
@@ -116,30 +195,19 @@ class Knot:
         rv.remove(p)            # error if not there... catch it?
         return rv
 
-    def strands(self):
-        "How many strands will it take to tie this knot?"
+    def strands(self, start=None):
+        "Return circuits that cover ALL pivots.  i.e. a three-stranded knot will have a list of three circuits"
         visited=set(self.pivots)
-        howmany=0
+        rv=[]
         while visited:
-            howmany+=1
+            if start is None:
+                start=visited.pop()
+                visited.add(start)
+            current=self.circuit(start)
+            visited.difference_update(set(current))
+            rv.append(current)
             start=None
-            p=visited.pop()
-            # Put it back, so the test works out okay.
-            visited.add(p)
-            direction=1
-            start=p
-            first=True
-            while p!=start or first:
-                first=False
-                nxt=self.line(p,direction)
-                if len(nxt) != 1:
-                    # This knot is inconsistent with tying at all!
-                    return 0
-                nxt=nxt[0]
-                visited.remove(p)
-                p=nxt
-                direction*=-1
-        return howmany
+        return rv
 
     def circuit(self,p=None):
         "Return list of pivots making circuit starting at point p"
@@ -215,9 +283,9 @@ class Knot:
                               p1.y+slope*(self.xmodulus-1-p1.x), self)
                 else:
                     rv.append(Point(-1,
-                                     p1.y+slope*(p1.x+1), self))
-                    p1=Point(self.xmodulus,
-                             p1.y+slope*(p1.x-1), self)
+                                     p1.y+slope*(-1-p1.x), self))
+                    p1=Point(self.xmodulus+1,
+                             p1.y+slope*(1-p1.x), self)
             rv.append(p1)
             counter+=1
             if counter>300:
@@ -248,7 +316,7 @@ class Knot:
         return rv
 
     def svgout(self,stroke_width=0.3,scale=20,circle_radius=0.3,
-               startat=None,segpercolor=None,crossings=True):
+               startat=None,coloriter=None,crossings=True):
         try:
             if type(SVGdraw)!=type(__builtins__):
                 return None
@@ -259,17 +327,6 @@ class Knot:
               '#800000', '#808000', '#008080', '#000080',
               '#ff2000', '#ffff20', '#20ffff', '#0020ff',
               '#ff0080', '#ff8000', '#8000ff', '#80ff00']
-        colordiv=len(self.pivots)/6
-        if segpercolor is not None and segpercolor > 0:
-            colordiv=segpercolor
-        def coloriter():
-            colcounter=0
-            while True:
-                yield cols[int(colcounter/colordiv)%len(cols)]
-                colcounter+=1
-
-        color=coloriter()
-
         svg=SVGdraw.svg(width="%dpx"%((self.xmodulus+2)*scale),
                         height="%dpx"%((self.ymax+2)*scale),
                         viewBox=[-1, -1, self.xmodulus+2,
@@ -298,30 +355,60 @@ class Knot:
         maingroup.addElement(minus)
         circgroup=SVGdraw.group(id="circgroup")
         maingroup.addElement(circgroup)
-        circuit=self.circuit(self.pivots[0])
-        for i in range(0,len(circuit)):
-            here=circuit[i]
-            nxt=circuit[(i+1)%len(circuit)]
-            col=color.next()
-            path=self.pathbetween(here,nxt)
-            pathstring=""
-            for j in range(0,len(path),2):
-                pathstring+=" M %d %d L %d %d"% \
-                    (path[j].x,path[j].y,
-                     path[j+1].x,path[j+1].y)
-            pathelt=SVGdraw.path(pathstring,stroke_width=stroke_width,
-                                 stroke=col)
-            if self.slopebetween(here,nxt)>0:
-                plus.addElement(pathelt)
+        strands=self.strands(self.pivots[0])
+        circuit=None
+        if coloriter is None:
+            if len(strands)>1:
+                # Multistranded; different color thingie.
+                def multicoloriter():
+                    counter=0
+                    lastcircuit=None
+                    while True:
+                        if circuit != lastcircuit:
+                            lastcircuit=circuit
+                            counter+=1
+                        yield cols[counter%len(cols)]
+                coloriter=multicoloriter()
             else:
-                minus.addElement(pathelt)
+                def singlecoloriter(): # for singlestranders!
+                    colcounter=0
+                    colordiv=len(self.pivots)/6
+                    while True:
+                        yield cols[int(colcounter/colordiv)%len(cols)]
+                        colcounter+=1
+                coloriter=singlecoloriter()
+
+            
+        for circuit in strands:
+            for i in range(0,len(circuit)):
+                here=circuit[i]
+                nxt=circuit[(i+1)%len(circuit)]
+                col=coloriter.next()
+                path=self.pathbetween(here,nxt)
+                pathstring=""
+                for j in range(0,len(path),2):
+                    pathstring+=" M %d %d L %d %d"% \
+                        (path[j].x,path[j].y,
+                         path[j+1].x,path[j+1].y)
+                pathelt=SVGdraw.path(pathstring,stroke_width=stroke_width,
+                                     stroke=col)
+                if self.slopebetween(here,nxt)>0:
+                    plus.addElement(pathelt)
+                else:
+                    minus.addElement(pathelt)
         for i in self.pivots:
             c=SVGdraw.circle(cx=i.x, cy=i.y, r=circle_radius,
                              fill='black')
             circgroup.addElement(c)
+        circgroup.addElement(SVGdraw.path("M 0 -1 l 0 %d M %d -1 l 0 %d"% \
+                                              (self.ymax+2,self.xmodulus,
+                                               self.ymax+2),
+                                          stroke='black',
+                                          stroke_width=0.03))
 
-        if crossings:
-            circuit=self.circuit(self.pivots[0])
+        if crossings and len(strands)==1:
+            # not handling multistrand with crossings yet...
+            circuit=strands[0]
             masked=set()
             over=True
             masks=[minusmask,plusmask]
@@ -332,8 +419,6 @@ class Knot:
                 nxt=circuit[(i+1)%len(circuit)]
                 points=self.pointsbetween(here,nxt)
                 slope=self.slopebetween(here,nxt)
-                # XXXX This is wrong; doesn't actually check for
-                # crossing.
                 for p in points:
                     if str(p) in masked:
                         over=not over
@@ -347,7 +432,7 @@ class Knot:
                         mask=masks[(1-slope)/2]
                     r=SVGdraw.rect(x=p.x-0.5, y=p.y-0.5,
                                    width=1, height=1,
-                                   fill="#111",
+                                   fill="black",
                                    transform="rotate(45,%d,%d)"%(p.x,p.y))
                     mask.addElement(r)
                     # If it's on the edge, duplicate it on the other side
