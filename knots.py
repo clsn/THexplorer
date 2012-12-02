@@ -145,6 +145,10 @@ by varying phase?
             # sections of length 3, each with one place filled.  If
             # it's 12 out of 18, still 6 sections of length 3, with
             # two places filled.  etc.
+            # But what about a section of length 5? Having 3 filled and
+            # 2 empty is different from 2 filled, a space, and one more
+            # filled, then space.  I don't think we check for that possibility
+            # at the moment.
             sections=gcd(total,number)
             size=total/sections
             howmany=number/sections
@@ -357,9 +361,9 @@ by varying phase?
               '#ff2000', '#ffff20', '#20ffff', '#0020ff',
               '#ff0080', '#ff8000', '#8000ff', '#80ff00']
         if circradius:
-            sz=(2*self.ymax*circscale+1+2*circradius)
+            sz=(2*self.ymax*circscale+2+2*circradius)
             svg=SVGdraw.svg(width="%dpx"%(sz*scale), height="%dpx"%(sz*scale),
-                            viewBox=[-sz, -sz, sz*2, sz*2])
+                            viewBox=[-sz+self.xmodulus/2.0, -sz, 2*sz, 2*sz])
             def transform(x,y):
                 # Have to flip it over...
                 r=self.ymax*circscale+circradius-y*circscale
@@ -379,7 +383,7 @@ by varying phase?
         minusmask=SVGdraw.SVGelement("mask",
                                      attributes={"id":"minusmask"})
         if circradius:
-            sz=1+2*self.ymax*circscale+2*circradius
+            sz=1+2*self.ymax*circscale+2*circradius # Whatever, something big.
             r=SVGdraw.rect(x=-sz, y=-sz, width=sz*2,height=sz*2,fill='white')
         else:
             r=SVGdraw.rect(x=-1,y=-1,width=self.xmodulus+2,height=self.ymax+2,
@@ -517,16 +521,16 @@ by varying phase?
                         tp4=transform(p.x+0.5, p.y-0.5)
                         tp=transform(p.x, p.y)
                         if circradius:
-                            t_here=transform(here.x,here.y)
-                            t_nxt=transform(nxt.x,nxt.y)
-                            angle=math.atan2(t_nxt[1]-t_here[1], t_nxt[0]-t_here[0])
+                            r=SVGdraw.circle(fill="black",
+                                             cx=tp[0], cy=tp[1], r=0.6)
                         else:
-                            angle=45 # Simpler this way.
-                        r=SVGdraw.polygon(fill="black",
-                                          points=[tp1,tp2,tp3,tp4],
-                                          transform="rotate(%f,%f,%f)"% \
-                                              (angle, tp[0], tp[1]))
+                            angle=45 
+                            r=SVGdraw.polygon(fill="black",
+                                              points=[tp1,tp2,tp3,tp4],
+                                              transform="rotate(%f,%f,%f)"% \
+                                                  (angle, tp[0], tp[1]))
                         mask.addElement(r)
+                        # maingroup.addElement(r)
                         # If it's on the edge, duplicate it on the other side
                         # for ease of viewing.
                         if p.x==0 and not circradius:
@@ -550,12 +554,33 @@ def out2file(knot, filename, *args, **kwargs):
     f.write(d.toXml())
     f.close
 
+def usage():
+    # Word this better; option args and argv are conflated.
+    print """Usage: %s [opts] [args]
+\t-h/--help
+\t[-n] [-c cols] [-r rad] [-k] -t leads bights
+\t[-n] [-c cols] [-r rad] [-k] [-s] -l n1 h1 n2 h2...
+\t[-n] [-c cols] [-r rad] [-k] '[(x1,y1),(x2,y2)...]'
+
+  -h --help:\t\t\tPrint this usage information
+  -n --nocrossing:\t\tDon't show crossovers
+  -t --turks-head l b:\t\tSimple l x b Turks Head
+  -c --colors=num:\t\tNumber of colors to use
+  -l --layers n1 h1 n2 h2 ...:\tSearch for "layered" knot
+  -s --single:\t\t\tWhen using -l/--layers, only find single-strand knots
+  -r --radius=rad:\t\tCircular plot with given inner radius
+  -k --knot-only:\t\tJust print out knot (default: output SVG)
+"""
+
 if __name__=='__main__':
     from getopt import getopt
-    (options, argv)=getopt(sys.argv[1:],"ntlc:s",
-                           ["nocrossing","turks-head","layers","colors=",
-                            "single"])
+    (options, argv)=getopt(sys.argv[1:],"hntlc:sr:k",
+                           ["help","nocrossing","turks-head","layers","colors=",
+                            "single", "radius=","knot-only"])
     opts={e[0]:e[1] for e in options}
+    if opts.has_key("-h") or opts.has_key("--help"):
+        usage()
+        exit(0)
     if opts.has_key("-l") or opts.has_key("--layers"):
         l=[]
         if len(argv)%2:
@@ -598,9 +623,17 @@ if __name__=='__main__':
                     yield int(count/per)
                     count+=1
             citer=citergen()
+    if opts.has_key("-r") or opts.has_key("--radius"):
+        rad=float(opts.get("-r") or opts["--radius"])
+    else:
+        rad=None
+    if opts.has_key("-k") or opts.has_key("--knot-only"):
+        # Don't output the svg, just the knot.
+        print str(k)
+        exit(0)
     s=k.svgout(crossings=not (opts.has_key('-n') or 
                               opts.has_key('--nocrossings')),
-               coloriter=citer)
+               coloriter=citer,circradius=rad)
     d=SVGdraw.drawing()
     d.svg=s
     print d.toXml()
