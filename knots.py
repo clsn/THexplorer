@@ -6,11 +6,15 @@ except ImportError:
     pass
 
 import sys
+import math
 
 """
 Working solely in the 'diagonal' system from here on!
 """
 class Point:
+    """A Point in "diagonal" space, i.e. (x,y) is a lattice-point on another
+grid which is tilted 45 degrees from this one.  Every point is associated with
+some Knot."""
     def __init__(self,x,y,knot):
         if not isinstance(x,int) and isinstance(y,int) and not (x+y)%2:
             raise Exception("Point must be ints and add to an even number")
@@ -19,6 +23,7 @@ class Point:
         self.knot=knot
 
     def __eq__(self,other):
+        "Points can equal 2-element lists or tuples as well as other knots."
         if isinstance(other,Point):
             return self.x==other.x and self.y==other.y and self.knot==other.knot
         # should be instance or 2-element list; exceptions otherwise.
@@ -36,10 +41,13 @@ class Point:
 
     def __hash__(self):
         # I need this for set manipulation.  Is this safe to mess with?
-        return hash(self.knot)+1000*self.x+10*self.y+10
+        # Thing is, when adding things to a set, the set machinery requires a
+        # hash function to see if it's already there.
+        return hash(self.knot) + 1000*self.x + 10*self.y + 10
 
     @classmethod
     def Pointlist(cls, knot, lst):
+        """Take a list of (x,y) tuples and return a list of Points."""
         rv=[]
         for p in lst:
             if isinstance(p,Point):
@@ -62,6 +70,14 @@ class Point:
                 (self.y-self.x)%mod]
 
 class Knot:
+    """A Turks' Head Knot, represented by its list of "pivot-points," which are the
+places you would put a pin into your mandrell if you were working it.  It's where
+the bights turn.
+
+The coordinates used are as if you took the tilted graph paper you normally work
+on and drew a grid passing through every lattice point.  This gives a grid twice as
+fine-grained as the original one, and we only use those points whose coordinates
+add up to an even number."""
     def __init__(self, ptlist):
         if not ptlist:
             return
@@ -71,6 +87,7 @@ class Knot:
         self.reconfigure()
 
     def reconfigure(self):
+        "Do all the initial checks and calculations on a knot."
         minx=min([p.x for p in self.pivots])
         miny=min([p.y for p in self.pivots])
         if not (minx,miny) in self.pivots:
@@ -91,7 +108,7 @@ class Knot:
     def validate(self):
         # Warn about these?
         # (a) odd length of self.pivots
-        # (b) xmodulus should == len(self.pivots)-1
+        # (b) xmodulus should == len(self.pivots) (True?)
         # (c) points not on even-sum lattices? (checked in Point)
         # (d) lines that don't connect?
         if len(self.pivots)%2 or self.xmodulus != len(self.pivots):
@@ -324,28 +341,49 @@ by varying phase?
         return rv
 
     def svgout(self,stroke_width=0.3,scale=20,circle_radius=0.3,
-               startat=None,coloriter=None,crossings=True):
-        try:
-            if type(SVGdraw)!=type(__builtins__):
-                return None
-        except NameError:
-            return None
+               startat=None,coloriter=None,crossings=True,circradius=None,circscale=1):
+        # if circradius is some positive number, try to draw a circular(!) diagram
+        # circscale is how much to scale the y-dimension by (how thick a circle)
+#        try:
+#            if type(SVGdraw)!=type(__builtins__):
+#		raise Exception("SVGdraw not a module?")
+#                return None
+#        except NameError:
+#	    raise Exception("No SVGDraw found")
+#            return None
 
         cols=['#000000', 
               '#800000', '#808000', '#008080', '#000080',
               '#ff2000', '#ffff20', '#20ffff', '#0020ff',
               '#ff0080', '#ff8000', '#8000ff', '#80ff00']
-        svg=SVGdraw.svg(width="%dpx"%((self.xmodulus+2)*scale),
-                        height="%dpx"%((self.ymax+2)*scale),
-                        viewBox=[-1, -1, self.xmodulus+2,
-                                  self.ymax+2])
+        if circradius:
+            sz=(2*self.ymax*circscale+1+2*circradius)
+            svg=SVGdraw.svg(width="%dpx"%(sz*scale), height="%dpx"%(sz*scale),
+                            viewBox=[-sz, -sz, sz*2, sz*2])
+            def transform(x,y):
+                # Have to flip it over...
+                r=self.ymax*circscale+circradius-y*circscale
+                theta=2*math.pi*x/self.xmodulus-math.pi
+                return [sz/2+r*math.cos(theta), sz/2+r*math.sin(theta)]
+        else:
+            svg=SVGdraw.svg(width="%dpx"%((self.xmodulus+2)*scale),
+                            height="%dpx"%((self.ymax+2)*scale),
+                            viewBox=[-1, -1, self.xmodulus+2,
+                                      self.ymax+2])
+            def transform(x,y):
+                return [x,y]
+                        
         defs=SVGdraw.defs(id="defs")
         plusmask=SVGdraw.SVGelement("mask",
                                     attributes={"id":"plusmask"})
         minusmask=SVGdraw.SVGelement("mask",
                                      attributes={"id":"minusmask"})
-        r=SVGdraw.rect(x=-1,y=-1,width=self.xmodulus+2,height=self.ymax+2,
-                       fill='white')
+        if circradius:
+            sz=1+2*self.ymax*circscale+2*circradius
+            r=SVGdraw.rect(x=-sz, y=-sz, width=sz*2,height=sz*2,fill='white')
+        else:
+            r=SVGdraw.rect(x=-1,y=-1,width=self.xmodulus+2,height=self.ymax+2,
+                           fill='white')
         plusmask.addElement(r)
         minusmask.addElement(r)
         defs.addElement(plusmask)
@@ -388,34 +426,56 @@ by varying phase?
 
             
         for circuit in strands:
+            # If there's a startat parameter, and it appears in this list,
+            # slosh the list around so it's first
+            if startat and startat in circuit:
+                ind=circuit.index(startat)
+                circuit=circuit[ind:]+circuit[0:ind]
             for i in range(0,len(circuit)):
                 here=circuit[i]
                 nxt=circuit[(i+1)%len(circuit)]
                 col=coloriter.next()
                 if type(col)==int: # let iterator generate indexes
                     col=cols[col%len(cols)]
-                path=self.pathbetween(here,nxt)
+                if circradius:
+                    path=[here,nxt]
+                else:
+                    path=self.pathbetween(here,nxt)
                 pathstring=""
                 for j in range(0,len(path),2):
-                    pathstring+=" M %d %d L %d %d"% \
-                        (path[j].x,path[j].y,
-                         path[j+1].x,path[j+1].y)
+                    # Had hoped that transform() would have been enough, but we need
+                    # to go through all the intermediate lattice-points when doing
+                    # circular plots, to curve around in the right direction.
+                    if circradius:
+                        betweens=self.pointsbetween(path[j],path[j+1])
+                        pathstring+=" M %f %f "%tuple(transform(path[j].x,path[j].y))
+                        for k in range(0,len(betweens)):
+                            pathstring+=" L %f %f "% \
+                                tuple(transform(betweens[k].x,betweens[k].y))
+                        pathstring+="L %f %f "% \
+                            tuple(transform(path[j+1].x, path[j+1].y))
+                    else:
+                        pathstring+=" M %f %f L %f %f"% \
+                            (tuple(transform(path[j].x,path[j].y)+
+                                   transform(path[j+1].x,path[j+1].y)))
                 pathelt=SVGdraw.path(pathstring,stroke_width=stroke_width,
-                                     stroke=col)
+                                     stroke=col,fill="none")
                 if self.slopebetween(here,nxt)>0:
                     plus.addElement(pathelt)
                 else:
                     minus.addElement(pathelt)
         for i in self.pivots:
-            c=SVGdraw.circle(cx=i.x, cy=i.y, r=circle_radius,
+            cr=transform(i.x, i.y)
+            c=SVGdraw.circle(cx=cr[0], cy=cr[1], r=circle_radius,
                              fill='black')
             circgroup.addElement(c)
-        # Mark the wraparound point.
-        circgroup.addElement(SVGdraw.path("M 0 -1 l 0 %d M %d -1 l 0 %d"% \
-                                              (self.ymax+2,self.xmodulus,
-                                               self.ymax+2),
-                                          stroke='black',
-                                          stroke_width=0.03))
+        if not circradius:
+            # Mark the wraparound point.
+            circgroup.addElement(SVGdraw.path("M 0 -1 l 0 %d M %d -1 l 0 %d"% \
+                                                  (self.ymax+2,self.xmodulus,
+                                                   self.ymax+2),
+                                              stroke='black',
+                                              stroke_width=0.03))
         # Somehow I want to *note* when a knot is single-strand or
         # multistrand.
         circgroup.addElement(SVGdraw.text(x=0.2,y=0,
@@ -426,7 +486,7 @@ by varying phase?
                                           transform='scale(1,-1)'))
 
         if crossings:
-            # Try multistrand crossings?
+            # Try multistrand crossings?  (not working right)
             # Need *ALL* the crossing points though.
             oncircuit=[]
             for circuit in strands:
@@ -451,18 +511,29 @@ by varying phase?
                             mask=masks[(1+slope)/2]
                         else:
                             mask=masks[(1-slope)/2]
-                        r=SVGdraw.rect(x=p.x-0.5, y=p.y-0.5,
-                                       width=1, height=1,
-                                       fill="black",
-                                       transform="rotate(45,%d,%d)"%(p.x,p.y))
+                        tp1=transform(p.x-0.5, p.y-0.5)
+                        tp2=transform(p.x-0.5, p.y+0.5)
+                        tp3=transform(p.x+0.5, p.y+0.5)
+                        tp4=transform(p.x+0.5, p.y-0.5)
+                        tp=transform(p.x, p.y)
+                        if circradius:
+                            t_here=transform(here.x,here.y)
+                            t_nxt=transform(nxt.x,nxt.y)
+                            angle=math.atan2(t_nxt[1]-t_here[1], t_nxt[0]-t_here[0])
+                        else:
+                            angle=45 # Simpler this way.
+                        r=SVGdraw.polygon(fill="black",
+                                          points=[tp1,tp2,tp3,tp4],
+                                          transform="rotate(%f,%f,%f)"% \
+                                              (angle, tp[0], tp[1]))
                         mask.addElement(r)
                         # If it's on the edge, duplicate it on the other side
                         # for ease of viewing.
-                        if p.x==0:
+                        if p.x==0 and not circradius:
                             mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
                                                          y=p.y-0.5,
                                                          width=1, height=1,
-                                                         fille="#111",
+                                                         fill="#111",
                                                          transform=
                                                          "rotate(45,%d,%d)"%
                                                          (self.xmodulus,p.y)))
@@ -536,3 +607,17 @@ if __name__=='__main__':
 
 # An irregular one I found experimenting:
 # [(1,1),(2,4),(3,1),(4,16),(5,1),(6,10),(6,4),(7,1),(9,9),(9,1),(10,4),(11,1),(13,9),(13,1),(15,1),(16,8),(17,1),(19,1),(21,11),(21,7),(21,1),(22,4),(23,1),(25,1),(26,4),(27,1),(28,16),(28,12),(29,1),(30,6),(30,4),(31,1)]
+# (16 wide, but make sure it's tall enough!)
+
+# An interesting conundrum: 
+# [(0,2),(0,0),(4,2),(4,0),(5,17),(5,13),(5,9),(5,5),(8,2),(8,0),(11,17),(11,13),(11,9),(11,5),(12,2),(12,0)]
+# Irregular bottom.  Length of bottom != wrap zone (I think).  Says it's 
+# not tyable, but is it?  If I set the xmodulus to 16 by hand, it's fine;
+# generates an SVG and all, tyable in 4 strands.  But as it is, the program
+# sets the xmodulus to 14.
+# XXXXX But its svg file looks like it has bad crossings!
+ 
+# [(0,0),(1,9),(2,4),(3,13),(4,0),(5,9),(6,4),(7,13),(8,0),(9,9),(10,4),(11,13),(12,0),(13,9),(14,4),(15,13)] is okay though.
+
+# Patrick's:
+# [(0,0),(1,13),(2,0),(3,17),(4,0),(5,13),(6,0),(7,33),(8,0),(9,13),(10,0),(11,17),(12,0),(13,13),(14,0),(15,33),(16,0),(17,13),(18,0),(19,17),(20,0),(21,13),(22,0),(23,33),(24,0),(25,13),(26,0),(27,17),(28,0),(29,13),(30,0),(31,33),(32,0),(33,13),(34,0),(35,17),(36,0),(37,13),(38,0),(39,33),(40,0),(41,13),(42,0),(43,17),(44,0),(45,13),(46,0),(47,33)]
