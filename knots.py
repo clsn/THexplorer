@@ -294,6 +294,10 @@ by varying phase?
 
     def slopebetween(self,p1,p2):
         "Return slope of line between two points; zero if there is no line."
+        # Bug or limitation: Something like a 9x3 TH, in which the strands
+        # go from one pivot to another and then directly back again, the
+        # two points are on BOTH lines.  We only see one, so we wind up
+        # just drawing parallel lines instead of crossing ones
         l1=p1.lines()
         l2=p2.lines()
         if l1[0]==l2[0]:
@@ -359,7 +363,7 @@ by varying phase?
         circuit=None
         if coloriter is None:
             if len(strands)>1:
-                # Multistranded; different color thingie.
+                # Multistranded; color it by strand.
                 def multicoloriter():
                     counter=0
                     lastcircuit=None
@@ -384,6 +388,8 @@ by varying phase?
                 here=circuit[i]
                 nxt=circuit[(i+1)%len(circuit)]
                 col=coloriter.next()
+                if type(col)==int: # let iterator generate indexes
+                    col=cols[col%len(cols)]
                 path=self.pathbetween(here,nxt)
                 pathstring=""
                 for j in range(0,len(path),2):
@@ -400,53 +406,66 @@ by varying phase?
             c=SVGdraw.circle(cx=i.x, cy=i.y, r=circle_radius,
                              fill='black')
             circgroup.addElement(c)
+        # Mark the wraparound point.
         circgroup.addElement(SVGdraw.path("M 0 -1 l 0 %d M %d -1 l 0 %d"% \
                                               (self.ymax+2,self.xmodulus,
                                                self.ymax+2),
                                           stroke='black',
                                           stroke_width=0.03))
+        # Somehow I want to *note* when a knot is single-strand or
+        # multistrand.
+        circgroup.addElement(SVGdraw.text(x=0.2,y=0,
+                                          text=str(len(strands)),
+                                          fill='#000408',
+                                          font_size=1,
+                                          font_family='sans-serif',
+                                          transform='scale(1,-1)'))
 
-        if crossings and len(strands)==1:
-            # not handling multistrand with crossings yet...
-            circuit=strands[0]
+        if crossings:
+            # Try multistrand crossings?
+            # Need *ALL* the crossing points though.
+            oncircuit=[]
+            for circuit in strands:
+                oncircuit.extend(self.oncircuit(circuit))
             masked=set()
             over=True
             masks=[minusmask,plusmask]
-            # This is a little redundant...
-            oncircuit=self.oncircuit(circuit)
-            for i in range(0,len(circuit)):
-                here=circuit[i]
-                nxt=circuit[(i+1)%len(circuit)]
-                points=self.pointsbetween(here,nxt)
-                slope=self.slopebetween(here,nxt)
-                for p in points:
-                    if str(p) in masked:
+            for circuit in strands:
+                for i in range(0,len(circuit)):
+                    here=circuit[i]
+                    nxt=circuit[(i+1)%len(circuit)]
+                    points=self.pointsbetween(here,nxt)
+                    slope=self.slopebetween(here,nxt)
+                    for p in points:
+                        if str(p) in masked:
+                            over=not over
+                            continue # don't do it twice, no need.
+                        # only count places that are crossed TWICE.
+                        if len(filter(lambda x: x==p, oncircuit))<2:
+                            continue
+                        if over:
+                            mask=masks[(1+slope)/2]
+                        else:
+                            mask=masks[(1-slope)/2]
+                        r=SVGdraw.rect(x=p.x-0.5, y=p.y-0.5,
+                                       width=1, height=1,
+                                       fill="black",
+                                       transform="rotate(45,%d,%d)"%(p.x,p.y))
+                        mask.addElement(r)
+                        # If it's on the edge, duplicate it on the other side
+                        # for ease of viewing.
+                        if p.x==0:
+                            mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
+                                                         y=p.y-0.5,
+                                                         width=1, height=1,
+                                                         fille="#111",
+                                                         transform=
+                                                         "rotate(45,%d,%d)"%
+                                                         (self.xmodulus,p.y)))
+                        masked.add(str(p))
                         over=not over
-                        continue # don't do it twice, no need.
-                    # only count places that are crossed TWICE.
-                    if len(filter(lambda x: x==p, oncircuit))<2:
-                        continue
-                    if over:
-                        mask=masks[(1+slope)/2]
-                    else:
-                        mask=masks[(1-slope)/2]
-                    r=SVGdraw.rect(x=p.x-0.5, y=p.y-0.5,
-                                   width=1, height=1,
-                                   fill="black",
-                                   transform="rotate(45,%d,%d)"%(p.x,p.y))
-                    mask.addElement(r)
-                    # If it's on the edge, duplicate it on the other side
-                    # for ease of viewing.
-                    if p.x==0:
-                        mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
-                                                     y=p.y-0.5,
-                                                     width=1, height=1,
-                                                     fille="#111",
-                                                     transform=
-                                                     "rotate(45,%d,%d)"%
-                                                     (self.xmodulus,p.y)))
-                    masked.add(str(p))
-                    over=not over
+                over=(len(circuit)%2==0) # ??
+                #  ????  Not quite working to keep track between circuits?
         return svg
 
 def out2file(knot, filename, *args, **kwargs):
@@ -455,3 +474,61 @@ def out2file(knot, filename, *args, **kwargs):
     d.svg=knot.svgout(*args,**kwargs)
     f.write(d.toXml())
     f.close
+
+if __name__=='__main__':
+    from getopt import getopt
+    (options, argv)=getopt(sys.argv[1:],"ntlc:s",
+                           ["nocrossing","turks-head","layers","colors=",
+                            "single"])
+    opts={e[0]:e[1] for e in options}
+    if opts.has_key("-l") or opts.has_key("--layers"):
+        l=[]
+        if len(argv)%2:
+            print "Layers requires an even number of arguments (num, height...)"
+            exit(1)
+        for i in range(0,len(argv)-1,2):
+            l.append((int(argv[i]),int(argv[i+1])))
+        possibles=Knot.Layers(l)
+        if not possibles:
+            print "None found"
+            exit(1)
+        if opts.has_key("-s") or opts.has_key("--single"):
+            if all([len(k.strands())>1 for k in possibles]):
+                print "Only multistrand knots found."
+                exit(2)
+        k=possibles.pop()
+    elif opts.has_key('-t') or opts.has_key('--turks-head'):
+        try:
+            k=Knot.TH(int(argv[0]),int(argv[1]))
+        except:
+            print "Simple turks-head, specify <leads> <bights>"
+            exit(1)
+    else:
+        import json
+        try:
+            s="".join(argv).replace('(','[').replace(')',']')
+            l=json.loads(s)
+        except ValueError:
+            print "Specify pivots ..."
+            exit(1)
+        k=Knot(l)
+    citer=None
+    if opts.has_key('-c') or opts.has_key("--colors"):
+        rep=float(opts.get('-c') or opts['--colors'])
+        per=len(k.pivots)/rep
+        if rep>0:
+            def citergen():
+                count=0
+                while True:
+                    yield int(count/per)
+                    count+=1
+            citer=citergen()
+    s=k.svgout(crossings=not (opts.has_key('-n') or 
+                              opts.has_key('--nocrossings')),
+               coloriter=citer)
+    d=SVGdraw.drawing()
+    d.svg=s
+    print d.toXml()
+
+# An irregular one I found experimenting:
+# [(1,1),(2,4),(3,1),(4,16),(5,1),(6,10),(6,4),(7,1),(9,9),(9,1),(10,4),(11,1),(13,9),(13,1),(15,1),(16,8),(17,1),(19,1),(21,11),(21,7),(21,1),(22,4),(23,1),(25,1),(26,4),(27,1),(28,16),(28,12),(29,1),(30,6),(30,4),(31,1)]
