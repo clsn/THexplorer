@@ -5,6 +5,8 @@ try:
 except ImportError:
     pass
 
+import sys
+
 """
 Working solely in the 'diagonal' system from here on!
 """
@@ -47,11 +49,17 @@ class Point:
                 rv.append(Point(p[0],p[1],knot))
         return rv
 
-    def lines(self):
-        # y might exceed xmodulus.  It does make sense in this case
-        # to take a y-coordinate modulo the xmodulus.
-        return [(self.x+self.y%self.knot.xmodulus)%self.knot.xmodulus,
-                (self.x-self.y%self.knot.xmodulus)%self.knot.xmodulus]
+    def lines(self,nowrap=False):
+        "Return (y(-1), y(1)), the y-intercepts of the lines passing through this point of slope -1 and 1 respectively."
+        # (I guess these are also the negatives of the x-intercepts)
+        # It does make sense in this case to take a y-coordinate modulo the
+        # xmodulus.
+        if (nowrap):
+            return [(self.x+self.y),
+                    (self.x-self.y)]
+        mod=self.knot.xmodulus
+        return [(self.y+self.x)%mod,
+                (self.y-self.x)%mod]
 
 class Knot:
     def __init__(self, ptlist):
@@ -91,7 +99,7 @@ class Knot:
         # Other validations?
 
     def __repr__(self):
-        return "Knot(%s)"%self.pivots.__repr__()
+        return "Knot(%s)"%str([(p.x,p.y) for p in self.pivots])
     def __str__(self):
         return self.__repr__()
 
@@ -119,9 +127,10 @@ class Knot:
             # Put it back, so the test works out okay.
             visited.add(p)
             direction=1
-            while p!=start:
-                if start is None:
-                    start=p
+            start=p
+            first=True
+            while p!=start or first:
+                first=False
                 nxt=self.line(p,direction)
                 if len(nxt) != 1:
                     # This knot is inconsistent with tying at all!
@@ -132,17 +141,16 @@ class Knot:
                 direction*=-1
         return howmany
 
-    def circuit(self,p):
+    def circuit(self,p=None):
         "Return list of pivots making circuit starting at point p"
+        if p is None:
+            p=self.pivots[0]    # you deserve an exception if pivots is []
         if not p in self.pivots:
             raise Exception("Start point must be pivot")
-        start=None
+        start=p
         direction=1
         rv=[]
-        while p!=start:
-            print "Circuit at %s"%p
-            if start is None:
-                start=p
+        while p!=start or not rv:
             rv.append(p)
             nxt=self.line(p,direction)
             if len(nxt) != 1:
@@ -158,28 +166,62 @@ class Knot:
             # Points do not share a (diagonal) line
             return []
         rv=[]
-        # How do I tell which direction to go in?  Is it a crime to
-        # just trial-and-error?
-        direction=1
-        while True:
-            (x,y)=((start.x+direction)%self.xmodulus,
-                   (start.y+slope*direction))
-            # non-end-point can't be at x=0, y=0, or y=ymax, so
-            # safe to do modulus there.
-            while end != (x,y) and x>0 and y>0 and y<self.ymax:
-                rv.append(Point(x,y,self))
-                x+=direction    # Slope only affects one coordinate
-                x%=self.xmodulus
-                y+=slope*direction
-            if end != (x,y):
-                if direction==1: # It better be
-                    direction = -1
-                    continue
-                else:           # Can't really happen
-                    raise Exception("Could not complete line %s--%s"%
-                                    (str(start),str(end)))
+        # In which direction?  Whichever one moves in the right y direction.
+        direction = -cmp(start.y,end.y)
+        # It really can't be zero
+        if direction==0:
+            raise Exception("??? Trying to draw horizontal line!?")
+        (x,y)=((start.x+slope*direction)%self.xmodulus,
+               (start.y+direction))
+        # non-end-point can't be at x=0, y=0, or y=ymax, so
+        # safe to do modulus there.
+        while end != (x,y) and x>=0 and y>0 and y<self.ymax:
+            rv.append(Point(x,y,self))
+            x+=slope*direction    # Slope only affects one coordinate
+            x%=self.xmodulus
+            y+=direction
+        if end != (x,y):
+            raise Exception("Could not complete line %s--%s"%
+                            (str(start),str(end)))
+        return rv
+
+    def pathbetween(self,p1,p2):
+        "Return list of points along 'path' between p1 and p2 (which are on one line); i.e. the endpoints and any wraparounds that may be happening."
+        slope=self.slopebetween(p1,p2)
+        if not slope:
+            return []
+        direction=cmp(p2.y-p1.y,0)
+        rv=[p1]
+        # Shouldn't need this, but you know... sometimes you pass a point
+        # into the wrong knot or something...
+        counter=0
+        p2intercept=p2.lines(nowrap=True)[(slope+1)/2]
+        while p1 != p2:
+            p1intercept=p1.lines(nowrap=True)[(slope+1)/2]
+            if p1intercept==p2intercept:
+                # They're a simple line apart
+                p1=p2
             else:
-                break
+                # sort of have to do this by condition and not by formula
+                # Note that the wraparound points, being one *past* the 
+                # wraparound do not have the same y-coordinate.
+                if direction*slope > 0:
+                    # Moving rightward
+                    # !! Note that these are semi-illegal Points, with
+                    # x-coordinates outside of [0,self.modulus)
+                    rv.append(Point(self.xmodulus+1,
+                                    p1.y+slope*(self.xmodulus+1-p1.x), self))
+                    p1=Point(-1,
+                              p1.y+slope*(self.xmodulus-1-p1.x), self)
+                else:
+                    rv.append(Point(-1,
+                                     p1.y+slope*(p1.x+1), self))
+                    p1=Point(self.xmodulus,
+                             p1.y+slope*(p1.x-1), self)
+            rv.append(p1)
+            counter+=1
+            if counter>300:
+                raise Exception("Seemingly endless path.")
         return rv
 
     def slopebetween(self,p1,p2):
@@ -205,7 +247,7 @@ class Knot:
         rv.extend(self.pointsbetween(path[-1],path[0]))
         return rv
 
-    def svgout(self,stroke_width=0.3,scale=100,circle_radius=0.3,
+    def svgout(self,stroke_width=0.3,scale=20,circle_radius=0.3,
                startat=None,segpercolor=None,crossings=True):
         try:
             if type(SVGdraw)!=type(__builtins__):
@@ -217,7 +259,7 @@ class Knot:
               '#800000', '#808000', '#008080', '#000080',
               '#ff2000', '#ffff20', '#20ffff', '#0020ff',
               '#ff0080', '#ff8000', '#8000ff', '#80ff00']
-        colordiv=len(self.pivots/6)
+        colordiv=len(self.pivots)/6
         if segpercolor is not None and segpercolor > 0:
             colordiv=segpercolor
         def coloriter():
@@ -228,26 +270,103 @@ class Knot:
 
         color=coloriter()
 
-        svg=SVGdraw.svg(width=(max_x-min_x+2)*scale,
-                        height=(max_y-min_y+2)*scale,
-                        x=(min_x-1)*scale,
-                        y=(min_y-1)*scale,
-                        transform="scale(%d)"%scale)
+        svg=SVGdraw.svg(width="%dpx"%((self.xmodulus+2)*scale),
+                        height="%dpx"%((self.ymax+2)*scale),
+                        viewBox=[-1, -1, self.xmodulus+2,
+                                  self.ymax+2])
         defs=SVGdraw.defs(id="defs")
+        plusmask=SVGdraw.SVGelement("mask",
+                                    attributes={"id":"plusmask"})
+        minusmask=SVGdraw.SVGelement("mask",
+                                     attributes={"id":"minusmask"})
+        r=SVGdraw.rect(x=-1,y=-1,width=self.xmodulus+2,height=self.ymax+2,
+                       fill='white')
+        plusmask.addElement(r)
+        minusmask.addElement(r)
+        defs.addElement(plusmask)
+        defs.addElement(minusmask)
         svg.addElement(defs)
         maingroup=SVGdraw.group(id="main")
+        # I've come to expect them this way up...
+        maingroup.attributes['transform']='scale(1,-1) translate(0,%d)'% \
+            (-self.ymax)
         svg.addElement(maingroup)
         # Positive slopes and negative slopes.
-        plus=SVGdraw.group(id="plus")
-        minus=SVGdraw.group(id="minus")
+        plus=SVGdraw.group(id="plus",mask="url(#plusmask)")
+        minus=SVGdraw.group(id="minus",mask="url(#minusmask)")
+        maingroup.addElement(plus)
+        maingroup.addElement(minus)
+        circgroup=SVGdraw.group(id="circgroup")
+        maingroup.addElement(circgroup)
         circuit=self.circuit(self.pivots[0])
-        for i in range(0,len(circuit)-1):
+        for i in range(0,len(circuit)):
             here=circuit[i]
-            nxt=circuit[i+1]
-            col=color()
-            # Check for wraparound!
-            # ???
-            # XXXXXXX
-            line=SVGdraw.line(here.x,here.y,there.x,there.y,
-                                   stroke_width=stroke_width,
-                                   stroke=color)
+            nxt=circuit[(i+1)%len(circuit)]
+            col=color.next()
+            path=self.pathbetween(here,nxt)
+            pathstring=""
+            for j in range(0,len(path),2):
+                pathstring+=" M %d %d L %d %d"% \
+                    (path[j].x,path[j].y,
+                     path[j+1].x,path[j+1].y)
+            pathelt=SVGdraw.path(pathstring,stroke_width=stroke_width,
+                                 stroke=col)
+            if self.slopebetween(here,nxt)>0:
+                plus.addElement(pathelt)
+            else:
+                minus.addElement(pathelt)
+        for i in self.pivots:
+            c=SVGdraw.circle(cx=i.x, cy=i.y, r=circle_radius,
+                             fill='black')
+            circgroup.addElement(c)
+
+        if crossings:
+            circuit=self.circuit(self.pivots[0])
+            masked=set()
+            over=True
+            masks=[minusmask,plusmask]
+            # This is a little redundant...
+            oncircuit=self.oncircuit(circuit)
+            for i in range(0,len(circuit)):
+                here=circuit[i]
+                nxt=circuit[(i+1)%len(circuit)]
+                points=self.pointsbetween(here,nxt)
+                slope=self.slopebetween(here,nxt)
+                # XXXX This is wrong; doesn't actually check for
+                # crossing.
+                for p in points:
+                    if str(p) in masked:
+                        over=not over
+                        continue # don't do it twice, no need.
+                    # only count places that are crossed TWICE.
+                    if len(filter(lambda x: x==p, oncircuit))<2:
+                        continue
+                    if over:
+                        mask=masks[(1+slope)/2]
+                    else:
+                        mask=masks[(1-slope)/2]
+                    r=SVGdraw.rect(x=p.x-0.5, y=p.y-0.5,
+                                   width=1, height=1,
+                                   fill="#111",
+                                   transform="rotate(45,%d,%d)"%(p.x,p.y))
+                    mask.addElement(r)
+                    # If it's on the edge, duplicate it on the other side
+                    # for ease of viewing.
+                    if p.x==0:
+                        mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
+                                                     y=p.y-0.5,
+                                                     width=1, height=1,
+                                                     fille="#111",
+                                                     transform=
+                                                     "rotate(45,%d,%d)"%
+                                                     (self.xmodulus,p.y)))
+                    masked.add(str(p))
+                    over=not over
+        return svg
+
+def out2file(knot, filename, *args, **kwargs):
+    f=open(filename,"w")
+    d=SVGdraw.drawing()
+    d.svg=knot.svgout(*args,**kwargs)
+    f.write(d.toXml())
+    f.close
