@@ -298,8 +298,12 @@ by varying phase?
         # go from one pivot to another and then directly back again, the
         # two points are on BOTH lines.  We only see one, so we wind up
         # just drawing parallel lines instead of crossing ones
+        
+        # So how about in such a case it depends where you're coming from?
         l1=p1.lines()
         l2=p2.lines()
+        if l1==l2:              # If they're BOTH equal, i.e. on both lines
+            return cmp(p1.y, p2.y) # can't be zero.
         if l1[0]==l2[0]:
             return -1
         if l1[1]==l2[1]:
