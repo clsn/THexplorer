@@ -7,6 +7,7 @@ except ImportError:
 
 import sys
 import math
+import itertools
 
 """
 Working solely in the 'diagonal' system from here on!
@@ -131,7 +132,7 @@ where n1 is the number of pivots to be placed at hight h1 and so on.
 Total length of the knot, number of bights or pivots along the (flat)
 bottom is the sum of all the n's.  Each n must divide the total 
 (have gcd(n,total)>1).  Trial-and-error attempt to build single-strand
-by varying phase?
+by varying choice of pivots within section?
 """
         from fractions import gcd
         total=sum([e[0] for e in layers])
@@ -139,55 +140,38 @@ by varying phase?
             raise Exception("Layers must not be prime to total.")
         pivots=[]
         layertable=[]
+        heights=[h[1] for h in layers]
+        # Will need an iterator or function that can generate the *combinations*
+        # in succession. -- itertools.combinations
+        # I don't need to consider shifting because "all combinations" includes all
+        # shifts of all combinations.
+        def assembleknot(combos):
+            """assembleknot(combos)
+combos is a list [[r00, r01, ... r0k], [r10, r11, ... r1m], ...] where each list of
+r's is a combination of elements (numbers): if s_k is gcd(total,n_k), then we are 
+choosing n_k/s_k numbers out of range(0,total/s_k).
+Return the knot which is the result of repeating those combinations across their 
+respective rows.
+"""
+            # First, the bottom layer.
+            l=[(x,0) for x in range(0,2*total,2)]
+            for i in range(0,len(combos)):
+                sections=gcd(total, layers[i][0])
+                for j in range(0,sections):
+                    shift=layers[i][1]%2
+                    l.extend([(x+2*j*total/sections+shift,layers[i][1]) for x in combos[i]])
+            return Knot(l)
+        iters=[]
         for layer in layers:
             [number,height]=layer
-            # if you're filling in 6 out of 18, the row looks like 6
-            # sections of length 3, each with one place filled.  If
-            # it's 12 out of 18, still 6 sections of length 3, with
-            # two places filled.  etc.
-            # But what about a section of length 5? Having 3 filled and
-            # 2 empty is different from 2 filled, a space, and one more
-            # filled, then space.  I don't think we check for that possibility
-            # at the moment.
             sections=gcd(total,number)
             size=total/sections
             howmany=number/sections
-            thisrow=[]
-            # Odd rows need to be on odd lattice points.
-            shift=height%2
-            for i in range(0,total,size):
-                for j in range(0,howmany):
-                    thisrow.append((2*(i+j)+shift,height))
-            layertable.append(thisrow)
-        # At this point, should have layers but all with phase=0.
-        # Need to make trials now?
-        def shiftover(row, shift):
-            "Return a row that looks like this one only shifted over, modulo the total."
-            return zip([(p[0]+shift)%(2*total) for p in row],
-                       [p[1] for p in row])
-        import itertools
-        def flatten(lol):
-            # flatten list of lists (only one level deep)
-            return list(itertools.chain(*lol))
-        def shifted(ltbl,shifts):
-            """Take a layer table ltbl.  Assemble a list by concatenating 
-            ltbl[0] shifted over by shifts[0] with
-            ltbl[1] shifted over by shifts[1] and
-            ltbl[2] shifted over by shifts[2] and so forth.
-            Return that.
-            """
-            ss=[]
-            for i in range(0,len(ltbl)):
-                ss+=shiftover(ltbl[i],shifts[i])
-            return ss
-        # Try all the possibilities?  Ow.
-        ranges=[xrange(0,i) for i in [len(l) for l in layertable]]
-        # LEN(L) FOR L IN LAYERTABLE IS WRONG!!! ^^^^^^^^^^^
-        itr=itertools.product(*ranges)
-        bottom=zip(range(0,2*total,2),[0]*total)
-        results=set()
-        for sft in itr:
-            k=Knot(bottom+shifted(layertable,sft))
+            iters.append(itertools.combinations(range(0,2*size,2), howmany))
+        bigiter=itertools.product(*iters)
+        results=set([])
+        for comb in bigiter:
+            k=assembleknot(comb)
             strnd=0
             try:
                 strnd=len(k.strands())
@@ -196,7 +180,6 @@ by varying phase?
             if strnd:
                 results.add(k)
         return results
-                    
 
     def __repr__(self):
         return "Knot(%s)"%str([(p.x,p.y) for p in self.pivots])
@@ -572,6 +555,15 @@ def usage():
   -k --knot-only:\t\tJust print out knot (default: output SVG)
 """%sys.argv[0]
 
+
+def errorsvg(msg):
+    s=SVGdraw.svg(width='5cm', height='1cm')
+    s.addElement(SVGdraw.text(0,0,msg))
+    d=SVGdraw.drawing()
+    d.svg=s
+    print d.toXml()
+    return s
+
 if __name__=='__main__':
     from getopt import getopt
     (options, argv)=getopt(sys.argv[1:],"hntlc:sr:k",
@@ -590,13 +582,15 @@ if __name__=='__main__':
             l.append((int(argv[i]),int(argv[i+1])))
         possibles=Knot.Layers(l)
         if not possibles:
-            print "None found"
+            # Which is better?
+            # print "None found"
+            errorsvg("None found")
             exit(1)
-        if opts.has_key("-s") or opts.has_key("--single"):
+        elif opts.has_key("-s") or opts.has_key("--single"):
             if all([len(k.strands())>1 for k in possibles]):
                 print "Only multistrand knots found."
                 exit(2)
-        k=possibles.pop()
+            k=possibles.pop()
     elif opts.has_key('-t') or opts.has_key('--turks-head'):
         try:
             k=Knot.TH(int(argv[0]),int(argv[1]))
