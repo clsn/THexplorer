@@ -542,7 +542,7 @@ def usage():
     print """Usage: %s [opts] [args]
 \t-h/--help
 \t[-n] [-c cols] [-r rad] [-k] -t leads bights
-\t[-n] [-c cols] [-r rad] [-k] [-s] -l n1 h1 n2 h2...
+\t[-n] [-c cols] [-r rad] [-k] [-s] [-a] -l n1 h1 n2 h2...
 \t[-n] [-c cols] [-r rad] [-k] '[(x1,y1),(x2,y2)...]'
 
   -h --help:\t\t\tPrint this usage information
@@ -553,6 +553,7 @@ def usage():
   -s --single:\t\t\tWhen using -l/--layers, only find single-strand knots
   -r --radius=rad:\t\tCircular plot with given inner radius
   -k --knot-only:\t\tJust print out knot (default: output SVG)
+  -a --all:\t\t\tUsed with -l; show all knots found; implies -k.
 """%sys.argv[0]
 
 
@@ -566,9 +567,9 @@ def errorsvg(msg):
 
 if __name__=='__main__':
     from getopt import getopt
-    (options, argv)=getopt(sys.argv[1:],"hntlc:sr:k",
+    (options, argv)=getopt(sys.argv[1:],"hntlc:sr:ka",
                            ["help","nocrossing","turks-head","layers","colors=",
-                            "single", "radius=","knot-only"])
+                            "single", "radius=","knot-only","all"])
     opts={e[0]:e[1] for e in options}
     if opts.has_key("-h") or opts.has_key("--help"):
         usage()
@@ -590,7 +591,10 @@ if __name__=='__main__':
             if all([len(k.strands())>1 for k in possibles]):
                 print "Only multistrand knots found."
                 exit(2)
-            k=possibles.pop()
+        if opts.has_key("-a") or opts.has_key("--all"):
+            print str(possibles)
+            exit(0)
+        k=possibles.pop()
     elif opts.has_key('-t') or opts.has_key('--turks-head'):
         try:
             k=Knot.TH(int(argv[0]),int(argv[1]))
