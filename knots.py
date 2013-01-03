@@ -479,55 +479,67 @@ respective rows.
             for circuit in strands:
                 oncircuit.extend(self.oncircuit(circuit))
             masked=set()
-            over=True
+            over=0
             masks=[minusmask,plusmask]
+            # How about this?  For each horizontal line _that has intersections on it_,
+            # all crossings go in one direction, and that direction alternates.
+            #
+            # How do we find those lines?
+            points=[]
             for circuit in strands:
                 for i in range(0,len(circuit)):
                     here=circuit[i]
                     nxt=circuit[(i+1)%len(circuit)]
-                    points=self.pointsbetween(here,nxt)
-                    slope=self.slopebetween(here,nxt)
-                    for p in points:
-                        if str(p) in masked:
-                            over=not over
-                            continue # don't do it twice, no need.
-                        # only count places that are crossed TWICE.
-                        if len(filter(lambda x: x==p, oncircuit))<2:
-                            continue
-                        if over:
-                            mask=masks[(1+slope)/2]
-                        else:
-                            mask=masks[(1-slope)/2]
-                        tp1=transform(p.x-0.5, p.y-0.5)
-                        tp2=transform(p.x-0.5, p.y+0.5)
-                        tp3=transform(p.x+0.5, p.y+0.5)
-                        tp4=transform(p.x+0.5, p.y-0.5)
-                        tp=transform(p.x, p.y)
-                        if circradius:
-                            r=SVGdraw.circle(fill="black",
-                                             cx=tp[0], cy=tp[1], r=0.6)
-                        else:
-                            angle=45 
-                            r=SVGdraw.polygon(fill="black",
-                                              points=[tp1,tp2,tp3,tp4],
-                                              transform="rotate(%f,%f,%f)"% \
-                                                  (angle, tp[0], tp[1]))
-                        mask.addElement(r)
-                        # maingroup.addElement(r)
-                        # If it's on the edge, duplicate it on the other side
-                        # for ease of viewing.
-                        if p.x==0 and not circradius:
-                            mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
-                                                         y=p.y-0.5,
-                                                         width=1, height=1,
-                                                         fill="#111",
-                                                         transform=
-                                                         "rotate(45,%d,%d)"%
-                                                         (self.xmodulus,p.y)))
-                        masked.add(str(p))
-                        over=not over
-                over=(len(circuit)%2==0) # ??
-                #  ????  Not quite working to keep track between circuits?
+                    points+=self.pointsbetween(here,nxt)
+            heights=[]
+            howmanyhits=dict()
+            for p in points:
+                howmanyhits[p]=howmanyhits.get(p,0)+1
+            howmanyhits=[(p,howmanyhits[p]) for p in howmanyhits.keys()]
+            howmanyhits=filter((lambda x: x[1]>1), howmanyhits)
+            heights=[x[0].y for x in howmanyhits]
+            heights.sort()
+            # No "sort unique" so just keep track of the last one we saw and skip it.
+            # DOESN'T WORK EITHER BUT BETTER THAN BEFORE XXXXXX
+            # (testing with python ./knots.py -l 18 17 6 32 6 37)  Works with more
+            # symmetrical designs.
+            last=None
+            for h in heights:
+                if h==last:
+                    continue
+                last=h
+                mask=masks[over]
+                over=1-over
+                for x in range(0,self.xmodulus):
+                    p=Point(x,h,self)
+                    if p in self.pivots:
+                        continue # Skip pivot-points.
+                    tp1=transform(p.x-0.5, p.y-0.5)
+                    tp2=transform(p.x-0.5, p.y+0.5)
+                    tp3=transform(p.x+0.5, p.y+0.5)
+                    tp4=transform(p.x+0.5, p.y-0.5)
+                    tp=transform(p.x, p.y)
+                    if circradius:
+                        r=SVGdraw.circle(fill="black",
+                                         cx=tp[0], cy=tp[1], r=0.6)
+                    else:
+                        angle=45 
+                        r=SVGdraw.polygon(fill="black",
+                                          points=[tp1,tp2,tp3,tp4],
+                                          transform="rotate(%f,%f,%f)"% \
+                                              (angle, tp[0], tp[1]))
+                    mask.addElement(r)
+                    # maingroup.addElement(r)
+                    # If it's on the edge, duplicate it on the other side
+                    # for ease of viewing.
+                    if p.x==0 and not circradius:
+                        mask.addElement(SVGdraw.rect(x=self.xmodulus-0.5,
+                                                     y=p.y-0.5,
+                                                     width=1, height=1,
+                                                     fill="#111",
+                                                     transform=
+                                                     "rotate(45,%d,%d)"%
+                                                     (self.xmodulus,p.y)))
         return svg
 
 def out2file(knot, filename, *args, **kwargs):
