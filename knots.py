@@ -581,7 +581,7 @@ if __name__=='__main__':
     from getopt import getopt
     (options, argv)=getopt(sys.argv[1:],"hntlc:sr:ka",
                            ["help","nocrossing","turks-head","layers","colors=",
-                            "single", "radius=","knot-only","all"])
+                            "single", "radius=","knot-only","all","circle-scale="])
     opts={e[0]:e[1] for e in options}
     if opts.has_key("-h") or opts.has_key("--help"):
         usage()
@@ -633,8 +633,11 @@ if __name__=='__main__':
                     yield int(count/per)
                     count+=1
             citer=citergen()
+    circscale=1
     if opts.has_key("-r") or opts.has_key("--radius"):
         rad=float(opts.get("-r") or opts["--radius"])
+        if opts.has_key("--circle-scale"):
+            circscale=float(opts['--circle-scale'])
     else:
         rad=None
     if opts.has_key("-k") or opts.has_key("--knot-only"):
@@ -643,7 +646,7 @@ if __name__=='__main__':
         exit(0)
     s=k.svgout(crossings=not (opts.has_key('-n') or 
                               opts.has_key('--nocrossings')),
-               coloriter=citer,circradius=rad)
+               coloriter=citer,circradius=rad,circscale=circscale)
     d=SVGdraw.drawing()
     d.svg=s
     print d.toXml()
