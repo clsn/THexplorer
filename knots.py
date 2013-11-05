@@ -42,9 +42,9 @@ some Knot."""
 
     def __hash__(self):
         # I need this for set manipulation.  Is this safe to mess with?
-        # Thing is, when adding things to a set, the set machinery requires a
-        # hash function to see if it's already there.
-        return hash(self.knot) + 1000*self.x + 10*self.y + 10
+        # tuples are hashable, that will be good enough.  Hash this as
+        # its tuple.  That matches the __eq__ function, more or less.
+        return hash((self.x, self.y))
 
     @classmethod
     def Pointlist(cls, knot, lst):
@@ -610,7 +610,7 @@ if __name__=='__main__':
     elif opts.has_key('-t') or opts.has_key('--turks-head'):
         try:
             k=Knot.TH(int(argv[0]),int(argv[1]))
-        except:
+        except IndexError:
             print "Simple turks-head, specify <leads> <bights>"
             exit(1)
     else:
