@@ -17,18 +17,15 @@ class Point:
 grid which is tilted 45 degrees from this one.  Every point is associated with
 some Knot."""
     def __init__(self,x,y,knot):
-        if not isinstance(x,int) and isinstance(y,int) and not (x+y)%2:
+        # Should both be ints and add to an even number
+        if (not isinstance(x, int)) or (not isinstance(y, int)) or (x+y)%2:
             raise Exception("Point must be ints and add to an even number")
         self.x=x
         self.y=y
         self.knot=knot
 
     def __eq__(self,other):
-        "Points can equal 2-element lists or tuples as well as other knots."
-        if isinstance(other,Point):
-            return self.x==other.x and self.y==other.y and self.knot==other.knot
-        # should be instance or 2-element list; exceptions otherwise.
-        return self.x==other[0] and self.y==other[1]
+        return self.x==other.x and self.y==other.y and self.knot==other.knot
 
     def __ne__(self,other):
         return not self.__eq__(other)
@@ -44,7 +41,7 @@ some Knot."""
         # I need this for set manipulation.  Is this safe to mess with?
         # tuples are hashable, that will be good enough.  Hash this as
         # its tuple.  That matches the __eq__ function, more or less.
-        return hash((self.x, self.y))
+        return hash((self.x, self.y, self.knot))
 
     @classmethod
     def Pointlist(cls, knot, lst):
@@ -91,7 +88,7 @@ add up to an even number."""
         "Do all the initial checks and calculations on a knot."
         minx=min([p.x for p in self.pivots])
         miny=min([p.y for p in self.pivots])
-        if not (minx,miny) in self.pivots:
+        if not Point(minx,miny,self) in self.pivots:
             raise Exception("Knot must have a lower left corner")
         # Normalize lower left corner to (0,0)
         for i in range(0,len(self.pivots)):
@@ -99,7 +96,7 @@ add up to an even number."""
             self.pivots[i].y -= miny
 
         # sort, row-first I think.
-        self.pivots.sort(cmp=(lambda a,b: cmp(a.y,b.y) or cmp(a.x,b.x)))
+        self.pivots.sort(key=(lambda a: (a.y, a.x)))
         # Looks confusing.  modulus needs to be +1 for odd leads, +2 for even.
         self.xmodulus=max([p.x for p in self.pivots])
         self.xmodulus += 2 - self.xmodulus%2
@@ -247,12 +244,12 @@ respective rows.
                (start.y+direction))
         # non-end-point can't be at x=0, y=0, or y=ymax, so
         # safe to do modulus there.
-        while end != (x,y) and x>=0 and y>0 and y<self.ymax:
+        while end != Point(x,y,self) and x>=0 and y>0 and y<self.ymax:
             rv.append(Point(x,y,self))
             x+=slope*direction    # Slope only affects one coordinate
             x%=self.xmodulus
             y+=direction
-        if end != (x,y):
+        if end != Point(x,y,self):
             raise Exception("Could not complete line %s--%s"%
                             (str(start),str(end)))
         return rv
@@ -510,8 +507,8 @@ respective rows.
                 last=h
                 mask=masks[over]
                 over=1-over
-                for x in range(0,self.xmodulus):
-                    p=Point(x,h,self)
+                for x in range(0,self.xmodulus,2):
+                    p=Point((x if not h%2 else x+1),h,self)
                     if p in self.pivots:
                         continue # Skip pivot-points.
                     tp1=transform(p.x-0.5, p.y-0.5)
